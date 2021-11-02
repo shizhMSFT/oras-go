@@ -1,4 +1,4 @@
-module oras.land/oras-go
+module oras.land/oras-go/pkg
 
 go 1.16
 
