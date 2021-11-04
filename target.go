@@ -36,19 +36,24 @@ type Storage interface {
 	Exists(ctx context.Context, target Descriptor) (bool, error)
 }
 
-// Metadata provides tag indexing services.
-type Metadata interface {
-	// Resolve resolves a tag to a descriptor.
-	Resolve(ctx context.Context, tag string) (Descriptor, error)
+// Resolver resolves reference tags.
+type Resolver interface {
+	// Resolve resolves a reference to a descriptor.
+	Resolve(ctx context.Context, reference string) (Descriptor, error)
+}
 
-	// Tag tags a descriptor with a string.
-	Tag(ctx context.Context, desc Descriptor, tag string) error
+// TagResolver provides reference tag indexing services.
+type TagResolver interface {
+	Resolver
+
+	// Tag tags a descriptor with a reference string.
+	Tag(ctx context.Context, desc Descriptor, reference string) error
 }
 
 // Target is a CAS with tags.
 type Target interface {
 	Storage
-	Metadata
+	TagResolver
 }
 
 // ParentFinder finds out the parent nodes of a given node of a directed acyclic
@@ -58,10 +63,10 @@ type ParentFinder interface {
 	FindParent(ctx context.Context, node Descriptor) ([]Descriptor, error)
 }
 
-// TagPusher pushes content with a tag.
+// TagPusher pushes content with a reference tag.
 // TagPusher is an extension of Target.
 type TagPusher interface {
-	// PushWithTag pushes the content with a tag, matching the expected
-	// descriptor.
-	PushWithTag(ctx context.Context, expected Descriptor, content io.Reader, tag string) error
+	// PushWithTag pushes the content with a reference tag, matching the
+	// expected descriptor.
+	PushWithTag(ctx context.Context, expected Descriptor, content io.Reader, reference string) error
 }
