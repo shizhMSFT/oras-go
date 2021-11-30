@@ -247,7 +247,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 		return err
 	}
 	url = location.String()
-	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	req, err = newRequest(ctx, http.MethodPut, url, content, expected.Size)
 	if err != nil {
 		return err
 	}
@@ -510,4 +510,44 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
 	}
 	return nil
+}
+
+// newRequest returns a HTTP request when length-known body.
+// The body will rewind on demand if supported.
+func newRequest(ctx context.Context, method, url string, r io.Reader, length int64) (*http.Request, error) {
+	// disable auto-closing reader
+	body, ok := r.(io.ReadCloser)
+	if ok {
+		body = io.NopCloser(body)
+	}
+
+	// when generating the requests, the following fields will be populated if
+	// body is build-in types.
+	// - GetBody
+	// - ContentLength
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if req.GetBody != nil {
+		if req.ContentLength != length {
+			// short circuit for a size mismatch
+			return nil, fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, length)
+		}
+		return req, nil
+	}
+	req.ContentLength = length
+
+	// make request rewindable if reader is seekable
+	rs, ok := r.(io.ReadSeeker)
+	if ok {
+		req.GetBody = func() (io.ReadCloser, error) {
+			_, err := rs.Seek(0, io.SeekStart)
+			if err != nil {
+				return nil, err
+			}
+			return body, nil
+		}
+	}
+	return req, nil
 }
