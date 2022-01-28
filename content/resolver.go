@@ -16,6 +16,7 @@ package content
 
 import (
 	"context"
+	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -32,4 +33,20 @@ type TagResolver interface {
 
 	// Tag tags a descriptor with a reference string.
 	Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error
+}
+
+// ResolveFetcher provides advanced pull with the resolving service.
+type ResolveFetcher interface {
+	// ResolveFetch fetches the content with a reference string.
+	// It is equivalent to call `Resolve()` and then `Fetch()` but more
+	// efficient or equal.
+	ResolveFetch(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
+}
+
+// TagPusher provides advanced push with the tag service.
+type TagPusher interface {
+	// PushTag pushes the content with a reference string.
+	// It is equivalent to call `Push()` and then `Tag()` but more efficient or
+	// equal.
+	PushTag(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error
 }
