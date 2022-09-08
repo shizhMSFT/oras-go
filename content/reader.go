@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/ioutil"
 )
@@ -38,6 +39,60 @@ var (
 	ErrTrailingData = errors.New("trailing data")
 )
 
+type reader struct {
+	base      io.Reader       // underlying reader
+	remaining int64           // bytes remaining
+	verifier  digest.Verifier // integrity verifier
+	err       error           // last error
+}
+
+func (r *reader) Read(p []byte) (n int, err error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+
+	if r.remaining > 0 {
+		if int64(len(p)) > r.remaining {
+			p = p[0:r.remaining]
+		}
+		n, err = r.base.Read(p)
+		r.remaining -= int64(n)
+
+		// detect early EOF
+		if err == io.EOF && r.remaining > 0 {
+			err = io.ErrUnexpectedEOF
+			r.err = err
+			return
+		}
+	}
+
+	// complete reading
+	if r.remaining <= 0 {
+		// verify the size of the read content
+		if err = ioutil.EnsureEOF(r.base); err != nil {
+			err = ErrTrailingData
+			r.err = err
+			return
+		}
+		// verify the digest of the read content
+		if !r.verifier.Verified() {
+			err = ErrMismatchedDigest
+			r.err = err
+			return
+		}
+	}
+	return
+}
+
+func Reader(r io.Reader, desc ocispec.Descriptor) io.Reader {
+	verifier := desc.Digest.Verifier()
+	return &reader{
+		base:      io.TeeReader(r, verifier), // verify while reading
+		remaining: desc.Size,
+		verifier:  verifier,
+	}
+}
+
 // ReadAll safely reads the content described by the descriptor.
 // The read content is verified against the size and the digest.
 func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
@@ -47,18 +102,9 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	buf := make([]byte, desc.Size)
 
 	// verify while reading
-	verifier := desc.Digest.Verifier()
-	r = io.TeeReader(r, verifier)
-	// verify the size of the read content
+	r = Reader(r, desc)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, fmt.Errorf("read failed: %w", err)
-	}
-	if err := ioutil.EnsureEOF(r); err != nil {
-		return nil, ErrTrailingData
-	}
-	// verify the digest of the read content
-	if !verifier.Verified() {
-		return nil, ErrMismatchedDigest
 	}
 	return buf, nil
 }
