@@ -21,7 +21,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 var (
@@ -46,19 +45,12 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	}
 	buf := make([]byte, desc.Size)
 
-	// verify while reading
-	verifier := desc.Digest.Verifier()
-	r = io.TeeReader(r, verifier)
-	// verify the size of the read content
-	if _, err := io.ReadFull(r, buf); err != nil {
+	vr := NewVerifyReader(r, desc)
+	if _, err := io.ReadFull(vr, buf); err != nil {
 		return nil, fmt.Errorf("read failed: %w", err)
 	}
-	if err := ioutil.EnsureEOF(r); err != nil {
-		return nil, ErrTrailingData
-	}
-	// verify the digest of the read content
-	if !verifier.Verified() {
-		return nil, ErrMismatchedDigest
+	if err := vr.Verify(); err != nil {
+		return nil, err
 	}
 	return buf, nil
 }
